@@ -1,31 +1,30 @@
 import { RequestHandler } from "express";
-import {
-  ClaimPointsRequest,
-  ClaimPointsResponse,
-  ClaimHistory,
-} from "@shared/api";
+import { ClaimPointsRequest, ClaimPointsResponse, ClaimHistory } from "@shared/api";
 import { getUserById, updateUserPoints, getAllUsers } from "./users";
+import { getDb } from "./db";
+import { ObjectId } from "mongodb";
 
-let claimHistory: ClaimHistory[] = [];
+const HISTORY_COLLECTION = "claimHistory";
 
 const generateRandomPoints = (): number => {
   return Math.floor(Math.random() * 10) + 1; // Random number between 1 and 10
 };
 
-export const claimPoints: RequestHandler = (req, res) => {
+export const claimPoints: RequestHandler = async (req, res) => {
+  const db = await getDb();
   const { userId }: ClaimPointsRequest = req.body;
 
   if (!userId) {
     return res.status(400).json({ error: "User ID is required" });
   }
 
-  const user = getUserById(userId);
+  const user = await getUserById(userId);
   if (!user) {
     return res.status(404).json({ error: "User not found" });
   }
 
   const pointsAwarded = generateRandomPoints();
-  const updatedUser = updateUserPoints(userId, pointsAwarded);
+  const updatedUser = await updateUserPoints(userId, pointsAwarded);
 
   if (!updatedUser) {
     return res.status(500).json({ error: "Failed to update user points" });
@@ -33,14 +32,14 @@ export const claimPoints: RequestHandler = (req, res) => {
 
   // Create history record
   const historyRecord: ClaimHistory = {
-    id: (claimHistory.length + 1).toString(),
+    id: new ObjectId().toString(),
     userId: userId,
     userName: updatedUser.name,
     pointsAwarded: pointsAwarded,
     timestamp: new Date(),
   };
 
-  claimHistory.unshift(historyRecord); // Add to beginning for latest first
+  await db.collection(HISTORY_COLLECTION).insertOne(historyRecord);
 
   const response: ClaimPointsResponse = {
     user: updatedUser,
@@ -53,8 +52,8 @@ export const claimPoints: RequestHandler = (req, res) => {
   res.json(response);
 };
 
-export const getHistory: RequestHandler = (req, res) => {
-  res.json({
-    history: claimHistory,
-  });
+export const getHistory: RequestHandler = async (_req, res) => {
+  const db = await getDb();
+  const history = await db.collection(HISTORY_COLLECTION).find().sort({ timestamp: -1 }).toArray();
+  res.json({ history });
 };
